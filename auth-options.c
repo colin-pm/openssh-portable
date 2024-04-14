@@ -30,6 +30,7 @@
 #include <stdarg.h>
 #include <ctype.h>
 #include <limits.h>
+#include <unistd.h>
 
 #include "openbsd-compat/sys-queue.h"
 
@@ -79,6 +80,8 @@ cert_option_list(struct sshauthopt *opts, struct sshbuf *oblob,
 {
 	char *command, *allowed;
 	char *name = NULL;
+	char *hostname = NULL;
+	char expected_hostname[HOST_NAME_MAX];
 	struct sshbuf *c = NULL, *data = NULL;
 	int r, ret = -1, found;
 
@@ -160,6 +163,30 @@ cert_option_list(struct sshauthopt *opts, struct sshbuf *oblob,
 					goto out;
 				}
 				opts->required_from_host_cert = allowed;
+				found = 1;
+			} else if (strcmp(name, "hostname@company.com") == 0) {
+				if (hostname != NULL) {
+					error("Certificate has multiple "
+						"hostname@company.com critical options");
+					goto out;
+				}
+				if ((r = sshbuf_get_cstring(data, &hostname,
+				    NULL)) != 0) {
+					error_r(r, "Unable to parse \"%s\" "
+					    "section", name);
+					goto out;
+				}
+				if (gethostname(expected_hostname, HOST_NAME_MAX)) {
+					error("Unable to get hostname");
+					free(hostname);
+					goto out;
+				}
+				if(strncmp(hostname, expected_hostname, HOST_NAME_MAX) != 0) {
+					logit("Authentication tried on device with hostname \"%s\""
+					" but certificate limits use to \"%s\"", expected_hostname, hostname);
+					free(hostname);
+					goto out;
+				}
 				found = 1;
 			}
 		}
